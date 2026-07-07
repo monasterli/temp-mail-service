@@ -1,3 +1,11 @@
+import type { Metadata } from 'next';
+import LegalPage from '@/components/LegalPage';
+
+export const metadata: Metadata = {
+  title: 'Report Abuse | [PROJECT_NAME]',
+  description: 'How to report abuse involving temporary email addresses on [PROJECT_NAME].'
+};
+
 export default function AbusePage() {
-  return <main className="min-h-screen bg-slate-950 text-white px-4 py-10"><article className="mx-auto max-w-3xl glass rounded-3xl p-6 space-y-4"><h1 className="text-3xl font-black">Abuse Policy</h1><p>Если через сервис нарушаются ваши права или правила площадки, отправьте жалобу на abuse@your-domain.com.</p><p>В жалобе укажите временный email, дату, время, описание нарушения и подтверждающие материалы.</p><p>После проверки адрес, домен или источник злоупотреблений могут быть ограничены.</p><a href="/" className="text-cyan-300">← На главную</a></article></main>;
+  return <LegalPage page="abuse" />;
 }

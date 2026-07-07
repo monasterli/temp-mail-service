@@ -1,13 +1,17 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
-import { Copy, RefreshCw, Mail, Clock, ShieldCheck, Sparkles } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ShieldCheck, Sparkles } from 'lucide-react';
 import AdSlot from '@/components/AdSlot';
+import InboxState from '@/components/InboxState';
 import LanguageSwitcher from '@/components/LanguageSwitcher';
+import MailboxHeader, { type MailboxStatus } from '@/components/MailboxHeader';
 import RewardedExtend from '@/components/RewardedExtend';
+import Toast, { type ToastTone } from '@/components/Toast';
 import { FALLBACK_LOCALE, getInitialLocale, translations, type Locale } from '@/lib/i18n';
 
 type Msg = { id: string; sender: string; subject: string; text: string; html?: string; created_at: string };
+type ToastState = { message: string; tone: ToastTone } | null;
 
 export default function Home() {
   const [locale, setLocale] = useState<Locale>(FALLBACK_LOCALE);
@@ -15,37 +19,99 @@ export default function Home() {
   const [expiresAt, setExpiresAt] = useState('');
   const [messages, setMessages] = useState<Msg[]>([]);
   const [loading, setLoading] = useState(false);
+  const [inboxLoading, setInboxLoading] = useState(false);
+  const [rateLimited, setRateLimited] = useState(false);
   const [selected, setSelected] = useState<Msg | null>(null);
+  const [toast, setToast] = useState<ToastState>(null);
   const t = translations[locale] ?? translations.en;
 
-  const secondsLeft = useMemo(
-    () => Math.max(0, Math.floor((new Date(expiresAt).getTime() - Date.now()) / 1000)),
-    [expiresAt, messages]
+  const secondsLeft = useMemo(() => {
+    const expiresAtMs = new Date(expiresAt).getTime();
+    if (!expiresAt || Number.isNaN(expiresAtMs)) return 0;
+    return Math.max(0, Math.floor((expiresAtMs - Date.now()) / 1000));
+  }, [expiresAt, messages]);
+
+  const mailboxStatus: MailboxStatus = useMemo(() => {
+    if (!address || loading) return 'loading';
+    if (secondsLeft <= 0) return 'expired';
+    if (secondsLeft <= 120) return 'expiring';
+    return 'active';
+  }, [address, loading, secondsLeft]);
+
+  const mailboxStatusLabel = {
+    loading: t.loadingMailbox,
+    active: t.mailboxReady,
+    expiring: t.mailboxExpiringSoon,
+    expired: t.mailboxExpired
+  }[mailboxStatus];
+
+  const selectedMessage = useMemo(
+    () => (selected ? messages.find((message) => message.id === selected.id) ?? null : null),
+    [messages, selected]
   );
 
-  async function createMailbox() {
+  const closeToast = useCallback(() => setToast(null), []);
+
+  async function createMailbox(reason?: 'expired') {
     setLoading(true);
-    const res = await fetch('/api/mailbox', { method: 'POST' });
-    const json = await res.json();
-    setAddress(json.address);
-    setExpiresAt(json.expiresAt);
-    setMessages([]);
-    setSelected(null);
-    localStorage.setItem('tempMail', JSON.stringify(json));
-    setLoading(false);
+    setRateLimited(false);
+    try {
+      const res = await fetch('/api/mailbox', { method: 'POST' });
+      if (res.status === 429) {
+        setRateLimited(true);
+        setToast({ message: t.rateLimitNewMailbox, tone: 'warning' });
+        return;
+      }
+
+      const json = await res.json();
+      setAddress(json.address);
+      setExpiresAt(json.expiresAt);
+      setMessages([]);
+      setSelected(null);
+      localStorage.setItem('tempMail', JSON.stringify(json));
+
+      if (reason === 'expired') {
+        setToast({ message: t.newMailboxGenerated, tone: 'info' });
+      }
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function loadInbox(addr = address) {
     if (!addr) return;
-    const res = await fetch(`/api/mailbox?address=${encodeURIComponent(addr)}`);
-    const json = await res.json();
-    if (json.expired) return createMailbox();
-    setMessages(json.messages || []);
+    setInboxLoading(true);
+    try {
+      const res = await fetch(`/api/mailbox?address=${encodeURIComponent(addr)}`);
+      if (res.status === 429) {
+        setRateLimited(true);
+        setToast({ message: t.rateLimitNewMailbox, tone: 'warning' });
+        return;
+      }
+
+      const json = await res.json();
+      if (json.expired) {
+        await createMailbox('expired');
+        return;
+      }
+
+      setRateLimited(false);
+      setMessages(json.messages || []);
+    } finally {
+      setInboxLoading(false);
+    }
+  }
+
+  async function copyAddress() {
+    if (!address) return;
+    await navigator.clipboard.writeText(address);
+    setToast({ message: t.copySuccess, tone: 'success' });
   }
 
   function handleExtended(nextExpiresAt: string) {
     setExpiresAt(nextExpiresAt);
     localStorage.setItem('tempMail', JSON.stringify({ address, expiresAt: nextExpiresAt }));
+    setToast({ message: t.extendMailbox, tone: 'success' });
   }
 
   useEffect(() => {
@@ -62,6 +128,8 @@ export default function Home() {
         loadInbox(j.address);
         return;
       }
+      createMailbox('expired');
+      return;
     }
     createMailbox();
   }, []);
@@ -93,65 +161,59 @@ export default function Home() {
 
           <AdSlot placement="top" label={t.topAdLabel} compact />
 
-          <div className="glass rounded-3xl p-5 shadow-2xl md:p-8">
-            <div className="mb-3 flex items-center gap-3 text-white/70">
-              <Mail size={20} /> {t.emailLabel}
-            </div>
-            <div className="flex flex-col gap-3 md:flex-row">
-              <div className="flex-1 break-all rounded-2xl border border-white/10 bg-black/30 px-5 py-4 text-xl font-bold md:text-2xl">
-                {address || t.creatingAddress}
-              </div>
-              <button
-                onClick={() => navigator.clipboard.writeText(address)}
-                className="flex items-center justify-center gap-2 rounded-2xl bg-cyan-400 px-5 py-4 font-bold text-slate-950"
-              >
-                <Copy size={18} /> {t.copy}
-              </button>
-            </div>
-            <div className="mt-5 flex flex-wrap items-center gap-3">
-              <button onClick={() => loadInbox()} className="flex items-center gap-2 rounded-xl bg-white/10 px-4 py-3 hover:bg-white/15">
-                <RefreshCw size={18} /> {t.refreshInbox}
-              </button>
-              <button onClick={createMailbox} disabled={loading} className="rounded-xl bg-white/10 px-4 py-3 hover:bg-white/15">
-                {t.newAddress}
-              </button>
-              <RewardedExtend address={address} onExtended={handleExtended} copy={t.rewarded} />
-              <div className="ml-auto flex items-center gap-2 text-cyan-100">
-                <Clock size={18} /> {Math.floor(secondsLeft / 60)}:{String(secondsLeft % 60).padStart(2, '0')}
-              </div>
-            </div>
-          </div>
+          <MailboxHeader
+            address={address}
+            secondsLeft={secondsLeft}
+            loading={loading}
+            status={mailboxStatus}
+            statusLabel={mailboxStatusLabel}
+            title={t.emailLabel}
+            helperText={t.addressHelper}
+            creatingAddress={t.creatingAddress}
+            copyLabel={t.copy}
+            refreshLabel={t.refreshInbox}
+            newAddressLabel={t.newAddress}
+            onCopy={copyAddress}
+            onRefresh={() => loadInbox()}
+            onNewMailbox={() => createMailbox()}
+            extendAction={<RewardedExtend address={address} onExtended={handleExtended} copy={t.rewarded} />}
+          />
 
           <div className="grid gap-5 md:grid-cols-[360px_1fr]">
             <div className="glass min-h-[360px] rounded-3xl p-4">
               <h2 className="mb-4 text-xl font-bold">{t.inboxTitle}</h2>
-              {!messages.length && (
-                <div className="rounded-2xl border border-dashed border-white/20 p-6 text-center text-white/55">
-                  {t.emptyInbox}
+              {inboxLoading && !messages.length ? (
+                <InboxState kind="loading" title={t.loadingInbox} message={t.inboxEmptyHint} />
+              ) : rateLimited ? (
+                <InboxState kind="rate-limit" title={t.rateLimitNewMailbox} message={t.inboxEmptyHint} />
+              ) : !messages.length ? (
+                <InboxState kind="empty" title={t.emptyInbox} message={t.inboxEmptyHint} />
+              ) : (
+                <div className="space-y-3">
+                  {messages.map((message) => (
+                    <button
+                      key={message.id}
+                      onClick={() => setSelected(message)}
+                      className="w-full rounded-2xl bg-white/10 p-4 text-left hover:bg-white/15"
+                    >
+                      <div className="truncate font-bold">{message.subject}</div>
+                      <div className="truncate text-sm text-white/60">{message.sender}</div>
+                    </button>
+                  ))}
                 </div>
               )}
-              <div className="space-y-3">
-                {messages.map((message) => (
-                  <button
-                    key={message.id}
-                    onClick={() => setSelected(message)}
-                    className="w-full rounded-2xl bg-white/10 p-4 text-left hover:bg-white/15"
-                  >
-                    <div className="truncate font-bold">{message.subject}</div>
-                    <div className="truncate text-sm text-white/60">{message.sender}</div>
-                  </button>
-                ))}
-              </div>
             </div>
 
             <article className="glass min-h-[360px] rounded-3xl p-5">
-              {selected ? (
+              {selected && !selectedMessage ? (
+                <InboxState kind="message-unavailable" title={t.messageUnavailable} message={t.messageUnavailableHint} />
+              ) : selectedMessage ? (
                 <>
                   <div className="text-sm text-white/60">
-                    {t.from}: {selected.sender}
+                    {t.from}: {selectedMessage.sender}
                   </div>
-                  <h2 className="my-2 text-2xl font-bold">{selected.subject}</h2>
-                  <pre className="whitespace-pre-wrap font-sans text-white/80">{selected.text || t.htmlNoText}</pre>
+                  <h2 className="my-2 text-2xl font-bold">{selectedMessage.subject}</h2>
+                  <pre className="whitespace-pre-wrap font-sans text-white/80">{selectedMessage.text || t.htmlNoText}</pre>
                 </>
               ) : (
                 <div className="flex h-full items-center justify-center text-center text-white/55">{t.selectMessage}</div>
@@ -174,19 +236,45 @@ export default function Home() {
             <p className="text-white/70">{t.whyText}</p>
           </div>
           <AdSlot placement="sidebar" label={t.bottomSidebarAdLabel} />
+          <a
+            href="/abuse"
+            className="block rounded-2xl border border-amber-300/20 bg-amber-300/10 px-4 py-3 text-sm font-black text-amber-100 hover:bg-amber-300/15"
+          >
+            {t.reportAbuse}
+          </a>
           <footer className="space-y-2 px-2 text-xs text-white/40">
+            <a className="block hover:text-white" href="/faq">
+              {t.faq}
+            </a>
+            <a className="block hover:text-white" href="/how-it-works">
+              {t.howItWorks}
+            </a>
+            <a className="block hover:text-white" href="/features">
+              {t.features}
+            </a>
             <a className="block hover:text-white" href="/privacy">
               {t.privacy}
             </a>
             <a className="block hover:text-white" href="/terms">
               {t.terms}
             </a>
+            <a className="block hover:text-white" href="/cookies">
+              {t.cookies}
+            </a>
+            <a className="block hover:text-white" href="/acceptable-use">
+              {t.acceptableUse}
+            </a>
             <a className="block hover:text-white" href="/abuse">
               {t.abuse}
+            </a>
+            <a className="block hover:text-white" href="/contact">
+              {t.contact}
             </a>
           </footer>
         </aside>
       </div>
+
+      {toast ? <Toast message={toast.message} tone={toast.tone} onClose={closeToast} /> : null}
     </main>
   );
 }

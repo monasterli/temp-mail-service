@@ -1,3 +1,11 @@
+import type { Metadata } from 'next';
+import LegalPage from '@/components/LegalPage';
+
+export const metadata: Metadata = {
+  title: 'Terms of Service | [PROJECT_NAME]',
+  description: 'Terms for using [PROJECT_NAME], a temporary email service at [DOMAIN].'
+};
+
 export default function TermsPage() {
-  return <main className="min-h-screen bg-slate-950 text-white px-4 py-10"><article className="mx-auto max-w-3xl glass rounded-3xl p-6 space-y-4"><h1 className="text-3xl font-black">Terms of Use</h1><p>Сервис предназначен для временного получения писем, тестирования и защиты основного email от спама.</p><p>Запрещено использовать сервис для мошенничества, спама, обхода закона, вредоносных действий и нарушения прав третьих лиц.</p><p>Администрация может блокировать домены, адреса, IP или запросы при подозрении на злоупотребления.</p><a href="/" className="text-cyan-300">← На главную</a></article></main>;
+  return <LegalPage page="terms" />;
 }

@@ -1,3 +1,11 @@
+import type { Metadata } from 'next';
+import LegalPage from '@/components/LegalPage';
+
+export const metadata: Metadata = {
+  title: 'Privacy Policy | [PROJECT_NAME]',
+  description: 'Privacy information for [PROJECT_NAME], a temporary email service at [DOMAIN].'
+};
+
 export default function PrivacyPage() {
-  return <main className="min-h-screen bg-slate-950 text-white px-4 py-10"><article className="mx-auto max-w-3xl glass rounded-3xl p-6 space-y-4"><h1 className="text-3xl font-black">Privacy Policy</h1><p className="text-white/70">Этот шаблон нужно адаптировать под юридическое лицо, домен, страну хранения данных и фактические рекламные сети.</p><p>Временные email-адреса и письма хранятся ограниченное время и автоматически удаляются. Технические логи безопасности могут храниться дольше для защиты сервиса от злоупотреблений.</p><p>Сервис может использовать сторонних провайдеров: хостинг, базу данных, прием почты, аналитику, рекламные сети и антибот-защиту.</p><a href="/" className="text-cyan-300">← На главную</a></article></main>;
+  return <LegalPage page="privacy" />;
 }
